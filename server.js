@@ -1,10 +1,15 @@
+const express = require('express');
 const { pack } = require('msgpackr');
 const WebSocket = require('ws');
 
-// --- FISH SPEECH TTS ROUTE ---
+const app = express();
+app.use(express.json({ limit: '50mb' }));
+
+const FISH_API_KEY = process.env.FISH_API_KEY;
+
 app.post('/tts', async (req, res) => {
     try {
-        const apiKey = req.headers.authorization?.replace('Bearer ', '') || process.env.FISH_API_KEY;
+        const apiKey = req.headers.authorization?.replace('Bearer ', '') || FISH_API_KEY;
         if (!apiKey) {
             return res.status(401).json({ success: false, error: "Missing Fish Audio API Key." });
         }
@@ -14,7 +19,6 @@ app.post('/tts', async (req, res) => {
             return res.status(400).json({ success: false, error: "Text is required for synthesis." });
         }
 
-        // Connect to Fish Audio live WebSocket
         const ws = new WebSocket('wss://api.fish.audio/v1/tts/live', {
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
@@ -25,7 +29,6 @@ app.post('/tts', async (req, res) => {
         const audioChunks = [];
 
         ws.on('open', () => {
-            // 1. Send start message
             const startMsg = {
                 event: 'start',
                 request: {
@@ -37,17 +40,12 @@ app.post('/tts', async (req, res) => {
                 }
             };
             ws.send(pack(startMsg));
-
-            // 2. Send text payload
             ws.send(pack({ event: 'text', text: text }));
-
-            // 3. Flush and stop
             ws.send(pack({ event: 'flush' }));
             ws.send(pack({ event: 'stop' }));
         });
 
         ws.on('message', (data) => {
-            // Fish Audio returns binary PCM audio chunks back over the WebSocket
             if (Buffer.isBuffer(data)) {
                 audioChunks.push(data);
             }
@@ -73,3 +71,7 @@ app.post('/tts', async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`TTS Proxy running on port ${PORT}`));
+
